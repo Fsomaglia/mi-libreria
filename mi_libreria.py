@@ -1,1 +1,453 @@
-{"nbformat":4,"nbformat_minor":0,"metadata":{"colab":{"provenance":[],"authorship_tag":"ABX9TyM13gV7esD0WdoOMhiVOtMK"},"kernelspec":{"name":"python3","display_name":"Python 3"},"language_info":{"name":"python"}},"cells":[{"cell_type":"markdown","source":["# TEMA 0: CARGAR DATOS"],"metadata":{"id":"EHvfNmu7tHMX"}},{"cell_type":"code","source":["# ------------------------------------------------------------------------------\n","# ------------------------------ Cargar Datos ----------------------------------\n","# ------------------------------------------------------------------------------\n","\n","import gspread\n","import pandas as pd\n","from google.colab import auth\n","from google.auth import default\n","\n","# Autenticación\n","auth.authenticate_user()\n","creds, _ = default()\n","client = gspread.authorize(creds)\n","\n","# Abrir el archivo en Google Drive (usa el nombre real de la hoja)\n","sheet = client.open(\"...\").sheet1  # Cambia esto si el archivo tiene otro nombre\n","\n","# Convertir a DataFrame\n","data = sheet.get_all_records()\n","datos_serie = pd.DataFrame(data)\n","\n","'''\n","wri_gi = datos_serie['wri_gi'].astype(float)\n","wgt = datos_serie['wgt'].astype(float)\n","\n","datos = pd.DataFrame({\n","    \"x\": wri_gi, # Predictora\n","    \"y\": wgt # Resultado\n","})\n","'''\n","print(datos_serie.head())\n","print(datos.head())"],"metadata":{"id":"wMvU4Yt5j2m2"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["from scipy.stats import norm\n","from scipy.stats import uniform\n","from scipy.stats import t\n","from scipy.stats import expon\n","from scipy.stats import chi2\n","from scipy.stats import binom\n","\n","\n","\n","# Definir una normal con media 0 y desviación estándar 1\n","dist_normal = norm(loc=0, scale=1)\n","dist_uniforme = uniform(loc=0, scale=10)  # uniforme entre 0 y 10\n","dist_t = t(df=10)\n","dist_exp = expon(scale=1)\n","\n","# Ejemplos:\n","dist_normal.mean()      # media = 0\n","dist_normal.std()       # desvío estándar = 1\n","dist_normal.rvs(100)    # generar 100 datos aleatorios\n","dist_chi = chi2(df=5)   # con 5 grados de libertad\n","dist_binom = binom(n=10, p=0.5)"],"metadata":{"id":"c439GqArqwJH"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":[],"metadata":{"id":"-KXhKduvAhXl"},"execution_count":null,"outputs":[]},{"cell_type":"markdown","source":["# TEMA 1: DENSIDADES"],"metadata":{"id":"Q12Wg5p4sle4"}},{"cell_type":"code","execution_count":null,"metadata":{"id":"wZWFk4FPGxU9"},"outputs":[],"source":["# ------------------------------------------------------------------------------\n","# -------------------------- Clase Generar Datos -------------------------------\n","# ------------------------------------------------------------------------------\n","import numpy as np\n","import scipy.stats as stats\n","import matplotlib.pyplot as plt\n","\n","class GeneradoraDeDatos:\n","    \"\"\"\n","    Genera conjuntos de datos con distintas distribuciones y permite obtener su densidad teórica.\n","    \"\"\"\n","    def __init__(self, n):\n","        self.n = n\n","        self.datos = None\n","\n","    def generar_datos(self, distribucion=\"normal\", loc=0, scale=1):\n","        \"\"\"\n","        Genera datos de la distribución seleccionada.\n","        \"\"\"\n","        if distribucion == \"normal\":\n","            self.datos = np.random.normal(loc=loc, scale=scale, size=self.n)\n","        elif distribucion == \"uniforme\":\n","            self.datos = np.random.uniform(low=loc, high=scale, size=self.n)\n","        elif distribucion == \"bs\":\n","            self.datos = self.generar_datos_bs()\n","        else:\n","            raise ValueError(\"Distribución no reconocida. Usa 'normal', 'uniforme' o 'bs'.\")\n","\n","    def generar_datos_bs(self):\n","        \"\"\"\n","        Genera datos con la distribución BS propuesta.\n","        \"\"\"\n","        u = np.random.uniform(size=(self.n,))\n","        y = u.copy()\n","        ind = np.where(u > 0.5)[0]\n","        y[ind] = np.random.normal(0, 1, size=len(ind))\n","        for j in range(5):\n","            ind = np.where((u > j * 0.1) & (u <= (j+1) * 0.1))[0]\n","            y[ind] = np.random.normal(j/2 - 1, 1/10, size=len(ind))\n","        return y\n","\n","    def obtener_densidad_teorica(self, x, tipo=\"normal\"):\n","        \"\"\"\n","        Obtiene la densidad teórica de la distribución generada.\n","        \"\"\"\n","        if self.datos is None:\n","            raise ValueError(\"Primero se deben generar los datos.\")\n","\n","        if tipo == \"normal\":\n","            mu, sigma = np.mean(self.datos), np.std(self.datos)\n","            return stats.norm.pdf(x, loc=mu, scale=sigma)\n","        elif tipo == \"bs\":\n","            return 0.5 * stats.norm.pdf(x, 0, 1) + 0.1 * sum([stats.norm.pdf(x, j/2 - 1, 1/10) for j in range(5)])\n","        elif tipo == \"uniforme\":\n","            a, b = min(self.datos), max(self.datos)\n","            return np.ones_like(x) / (b - a) * ((x >= a) & (x <= b))\n","        else:\n","            raise ValueError(\"Tipo debe ser 'normal', 'bs' o 'uniforme'.\")\n","\n","# ------------------------------------------------------------------------------\n","# -------------------------- Clase Estimar Datos -------------------------------\n","# ------------------------------------------------------------------------------\n","class Estimacion:\n","    \"\"\"\n","    Realiza estimación de densidad mediante histogramas o núcleos.\n","    \"\"\"\n","    def __init__(self, datos):\n","        self.datos = datos\n","\n","    def calcular_histograma(self, h):\n","        \"\"\"\n","        Calcula un histograma manual con ancho de banda h.\n","        \"\"\"\n","        minimo, maximo = min(self.datos), max(self.datos)\n","        bordes = np.arange(minimo, maximo + h, h)\n","        histograma, _ = np.histogram(self.datos, bins=bordes, density=True)\n","        centros = (bordes[:-1] + bordes[1:]) / 2\n","        return centros, histograma\n","\n","    def evalua_histograma(self, h, x):\n","        bordes, densidad = self.calcular_histograma(h)\n","        res = []\n","\n","        for valor in x:\n","            for i in range(len(bordes) - 1):\n","                if bordes[i] <= valor < bordes[i + 1]:\n","                    res.append(densidad[i])\n","                    break\n","            else:\n","                res.append(0)  # Si está fuera de los intervalos, asignar 0\n","\n","        return res\n","\n","    def calcular_densidad_nucleo(self, h, kernel):\n","        \"\"\"\n","        Estima la densidad mediante núcleos.\n","        \"\"\"\n","        x_vals = np.linspace(min(self.datos), max(self.datos), 1000)\n","        n = len(self.datos)\n","        density = np.zeros_like(x_vals, dtype=float)\n","\n","        # Definir los kernels\n","        if kernel == 'gaussiano':\n","            def k_func(u): return (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * u**2)\n","        elif kernel == 'uniforme':\n","            def k_func(u): return (np.abs(u) <= 0.5).astype(float)\n","        elif kernel == 'cuadratica':\n","            def k_func(u): return (3/4 * (1 - u**2) * (np.abs(u) <= 1).astype(float))\n","        elif kernel == 'triangular':\n","            def k_func(u): return (1 - np.abs(u)) * (np.abs(u) <= 1).astype(float)\n","        else:\n","            raise ValueError(\"Kernel no reconocido. Usa 'gaussiano', 'uniforme', 'cuadratica' o 'triangular'.\")\n","\n","        for i in range(len(x_vals)):\n","            u = (x_vals[i] - self.datos) / h\n","            density[i] = np.sum(k_func(u)) / (n * h)\n","\n","        return x_vals, density"]},{"cell_type":"code","source":["# ------------------------------------------------------------------------------\n","# -------------------------- Funciones Adicionales -----------------------------\n","# ------------------------------------------------------------------------------\n","# Función para calcular error cuadrático medio entre densidad estimada y teórica ---\n","def calcular_ecm(x, dens_teorica, dens_estimada):\n","    return np.mean((dens_teorica - dens_estimada) ** 2)\n","\n","# Función para probar distintos valores de h y encontrar el mejor ECM ---\n","def buscar_mejor_h(generador, est, kernel, hs, tipo=\"bs\"):\n","    errores = []\n","    x_vals = np.linspace(min(est.datos) - 1, max(est.datos) + 1, 1000)\n","    f_teorica = generador.obtener_densidad_teorica(x_vals, tipo=tipo)\n","\n","    for h in hs:\n","        _, f_est = est.calcular_densidad_nucleo(h=h, kernel=kernel)\n","        error = calcular_ecm(x_vals, f_teorica, f_est)\n","        errores.append((h, error))\n","\n","    return sorted(errores, key=lambda x: x[1])"],"metadata":{"id":"n7znE4zAZnYK"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# ------------------------------------------------------------------------------\n","# -------------------------- EJEMPLO DE UTILIDAD -------------------------------\n","# ------------------------------------------------------------------------------\n","\n","# --- EJECUCIÓN DEL CÓDIGO PARA UN EJEMPLO CON DATOS BS ---\n","# Generamos los datos\n","generador = GeneradoraDeDatos(n = 1000)\n","generador.generar_datos(distribucion=\"bs\") # Tener en cuenta que se usa distribucion BS\n","data = generador.datos\n","\n","# Creamos la clase estimadora\n","est = Estimacion(datos=data)\n","\n","'''\n","# 3 - Construí una grilla que contenga 100 valores equiespaciados de  h  que se encuentren entre el intervalo  (0,5] .\n","h_values = np.linspace(0.01, 0.5, 100)\n","errores = []\n","\n","for h in h_values:\n","    estimador = Estimacion(datos)\n","    # 3.1 Calcular la densidad estimada en los puntos de prueba\n","    f_estimado = estimador.evalua_histograma(h, x_prueba)\n","    # 3.3 Calcular la densidad teórica en los puntos de prueba\n","    f_teorico = generador.obtener_densidad_teorica(x_prueba, tipo=\"normal\")\n","    # 3.4 Calcular el Error Cuadrático Medio (ECM)\n","    ecm = np.mean((f_teorico - f_estimado) ** 2)\n","    # 3.5 Guardar error\n","    errores.append(ecm)\n","'''\n","'''\n","# 5 - Informá cual es el menor valor de ECM (llamalo ECM ∗ ) y a qué valor de  h  (llamalo  h∗ ) corresponde.\n","h_optimo = h_values[np.argmin(errores_ecm)]\n","ECM_minimo = np.min(errores_ecm)\n","print(f\"Min Error: {ecm_min}\")\n","print(f\"Min h: {h_min}\")\n","\n","# -------------------------------\n","# Obtener el h* y ECM* (mínimo error)\n","h_optimo_gauss = h_values[np.argmin(errores_ecm)]\n","ECM_minimo_gauss = np.min(errores_ecm)\n","\n","# Gráfico de ECM vs h\n","plt.figure(figsize=(8, 5))\n","plt.plot(h_values, errores_ecm, label=\"ECM vs. h\", color=\"blue\")\n","plt.axvline(h_optimo_gauss, linestyle=\"--\", color=\"red\", label=f\"h* = {h_optimo_gauss:.3f}\")\n","plt.xlabel(\"h (ancho de banda)\")\n","plt.ylabel(\"Error Cuadrático Medio (ECM)\")\n","plt.title(\"ECM vs. h (Núcleo Gaussiano)\")\n","plt.legend()\n","plt.show()\n","\n","# Gráfico de densidad teórica vs estimada con h*\n","estimador = Estimacion(generador.datos)\n","x_vals, densidad_estimada_optima = estimador.calcular_densidad_nucleo(h_optimo_gauss, kernel=\"gaussiano\")\n","\n","plt.figure(figsize=(8, 5))\n","plt.plot(x_vals, densidad_estimada_optima, label=f\"Densidad estimada (h* = {h_optimo_gauss:.3f})\", color=\"green\")\n","plt.plot(x_prueba, densidad_teorica, label=\"Densidad teórica\", color=\"red\", linestyle=\"--\")\n","plt.xlabel(\"x\")\n","plt.ylabel(\"Densidad\")\n","plt.title(\"Densidad estimada vs. Teórica (Núcleo Gaussiano)\")\n","plt.legend()\n","plt.show()\n","\n","# Mostrar resultados\n","print(f\"El menor error ECM* es: {ECM_minimo_gauss:.6f}\")\n","print(f\"El h* óptimo es: {h_optimo:.3f}\")\n","\n","'''\n","\n","# Rango de valores x para estimar la densidad\n","x_vals = np.linspace(min(data) - 1, max(data) + 1, 1000)\n","dens_teorica = generador.obtener_densidad_teorica(x_vals, tipo=\"bs\")\n","\n","# Elegimos un kernel y varios h para comparar\n","kernel_usado = \"gaussiano\"\n","valores_h = [0.05, 0.1, 0.5, 1, 1.5, 2]\n","\n","# Probamos todos los h\n","errores = buscar_mejor_h(generador, est, kernel=kernel_usado, hs=valores_h, tipo=\"bs\")\n","print(\"Errores ECM por valor de h:\")\n","for h, err in errores:\n","    print(f\"h = {h:.2f} -> ECM = {err:.5f}\")\n","\n","# Tomamos el mejor h (menor error)\n","mejor_h = errores[0][0]\n","x_kernel, dens_estimada = est.calcular_densidad_nucleo(h=mejor_h, kernel=kernel_usado)\n","\n","# --- 6. GRAFICAMOS ---\n","plt.figure(figsize=(10, 6))\n","plt.plot(x_vals, dens_teorica, label=\"Densidad Teórica BS\", color=\"black\", linestyle=\"--\")\n","plt.plot(x_kernel, dens_estimada, label=f\"Kernel {kernel_usado} h={mejor_h}\", color=\"blue\")\n","plt.title(\"Comparación entre densidad teórica y estimación por núcleos\")\n","plt.xlabel(\"x\")\n","plt.ylabel(\"Densidad\")\n","plt.legend()\n","plt.grid(True)\n","plt.show()"],"metadata":{"id":"efUi-FcPZxWK"},"execution_count":null,"outputs":[]},{"cell_type":"markdown","source":["# TEMA 2: QQPLOT"],"metadata":{"id":"u98dQzSUssIP"}},{"cell_type":"code","source":["# ------------------------------------------------------------------------------\n","# ----------------------------------- QQPLOT -----------------------------------\n","# ------------------------------------------------------------------------------\n","import numpy as np\n","import matplotlib.pyplot as plt\n","from scipy.stats import norm\n","\n","def miqqplot(datos):\n","    # 1. Ordenar los datos\n","    x_ord = np.sort(datos)\n","\n","    # 2. Estandarizar\n","    media = np.mean(x_ord)\n","    desv_estandar = np.std(x_ord)\n","    x_ord_s = (x_ord - media) / desv_estandar\n","\n","    # 3. Calcular los cuantiles teóricos de la normal estándar\n","    n = len(x_ord)\n","    probabilidades = np.linspace(0.5 / n, 1 - 0.5 / n, n)  # evita extremos 0 y 1\n","    cuantiles_teoricos = norm.ppf(probabilidades) # Para una normal\n","\n","    # 4. Graficar\n","    plt.figure(figsize=(6, 6))\n","    plt.scatter(cuantiles_teoricos, x_ord_s, color='darkred', label='Datos estandarizados')\n","    plt.plot(cuantiles_teoricos, cuantiles_teoricos, color='blue', linestyle='--', label='Recta identidad')\n","    plt.axhline(0, color=\"gray\", linewidth=0.5)\n","    plt.axvline(0, color=\"gray\", linewidth=0.5)\n","    plt.title(\"QQ Plot (manual)\")\n","    plt.xlabel(\"Cuantiles Teóricos (Normal Estándar)\")\n","    plt.ylabel(\"Cuantiles Muestrales Estandarizados\")\n","    plt.legend()\n","    plt.grid(True)\n","    plt.tight_layout()\n","    plt.show()\n","\n","# Implementacion\n","datos = np.array([38, 12, 41, 15, 18, 22, 35, 25, 21, 20, 29, 34, 24, 38, 41, 28, 45, 18])\n","miqqplot(datos)\n"],"metadata":{"id":"Dt65HK0xkcLF"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# ------------------------------------------------------------------------------\n","# ------------------------------- QQPLOT t-student -----------------------------\n","# ------------------------------------------------------------------------------\n","import numpy as np\n","import matplotlib.pyplot as plt\n","from scipy.stats import t\n","\n","def miqqplot_tstudent(data, df):\n","    n = len(data)\n","    # Ordenar los datos muestrales\n","    datos_ordenados = np.sort(data)\n","\n","    # Calcular probabilidades (posiciones de los cuantiles)\n","    probabilidades = (np.arange(1, n + 1) - 0.5) / n\n","\n","    # Cuantiles teóricos de la t-Student con df grados de libertad\n","    cuantiles_teoricos = t.ppf(probabilidades, df)\n","\n","    # Gráfico\n","    plt.figure(figsize=(6, 6))\n","    plt.scatter(cuantiles_teoricos, datos_ordenados, label=\"Datos\")\n","\n","    # Línea identidad\n","    min_val = min(cuantiles_teoricos[0], datos_ordenados[0])\n","    max_val = max(cuantiles_teoricos[-1], datos_ordenados[-1])\n","    plt.plot([min_val, max_val], [min_val, max_val], 'b--', label=\"y = x\")\n","\n","    plt.xlabel(f'Cuantiles teóricos (t-Student, df={df})')\n","    plt.ylabel('Cuantiles muestrales')\n","    plt.title('QQ Plot vs. t-Student')\n","    plt.grid(True)\n","    plt.legend()\n","    plt.tight_layout()\n","    plt.show()"],"metadata":{"id":"sf5GAbUws7Km"},"execution_count":null,"outputs":[]},{"cell_type":"markdown","source":["# TEMA 3: REGRESION LINEAL SIMPLE"],"metadata":{"id":"RW1jc0qxtA9H"}},{"cell_type":"code","source":["import gspread\n","import pandas as pd\n","import numpy as np\n","from google.colab import auth\n","from google.auth import default\n","from scipy import stats\n","import matplotlib.pyplot as plt\n","\n","class regresionLinealSimple():\n","  def __init__(self, x, y):\n","    # Definimos todos los parametros\n","    self.x = datos.x                 # Variable Predictora\n","    self.y = datos.y                 # Variable Respuesta\n","    self.b0 = None                   # Ordenada al origen\n","    self.b1 = None                   # Pendiente de la recta\n","    self.recta = None                # Recta\n","    self.total = None                # Total de sumatoria\n","\n","  def obtener_parametros(self):\n","    self.b1 = np.sum((self.x - np.mean(self.x)) * (self.y - np.mean(self.y))) / np.sum((self.x - np.mean(self.x))**2) # Calculamos la Pendiente\n","    self.b0 = np.mean(self.y) - self.b1 * np.mean(self.x)                                                             # Calculamos la ordenada al origen\n","    self.recta = self.b0 + self.b1 * self.x                                                                           # Cargamos la Recta\n","    self.total = np.sum((self.y - self.recta)**2)                                                                     # Cargamos la suma total\n","    return self.b0, self.b1, self.recta, self.total\n","\n","  def graficar(self):\n","    plt.scatter(self.x, self.y, marker=\"o\", facecolors=\"none\", edgecolors=\"blue\", label=\"Datos\")\n","    plt.plot(self.x, self.recta, color=\"red\", label=\"Recta estimada\")\n","    plt.xlabel(\"X\")\n","    plt.ylabel(\"Y\")\n","    plt.title(\"Recta\")\n","    plt.legend()\n","    plt.grid(True)\n","    plt.show()\n","\n","  def predecir(self, nuevos_x):\n","    # Si es iterable, aplica vectorizado\n","    if isinstance(nuevos_x, (list, np.ndarray, pd.Series)):\n","        return self.b0 + self.b1 * nuevos_x\n","    else:\n","        # Si es un solo valor escalar, devolvé como float\n","        return float(self.b0 + self.b1 * nuevos_x)\n","\n","  def calcular_r2(self): # Determina si ajusta bien o no los datos\n","    ss_tot = np.sum((self.y - np.mean(self.y))**2)  # Sumatoria de valores de y - media de y, todo al cuadrado\n","    ss_res = np.sum((self.y - self.recta)**2)       # Sumatoria de valores de y - valores de la recta, todo al cuadrado\n","    r2 = 1 - (ss_res / ss_tot)                      # Calculo de R2\n","    return r2\n","\n","  def obtener_residuos(self):\n","    residuos = self.y - self.recta                # Valores de y - valores de la recta\n","    return residuos\n","\n","  def grafico_residuos(self):\n","    residuos = self.obtener_residuos()\n","    plt.scatter(self.x, residuos)\n","    plt.axhline(0, color='red', linestyle='--')\n","    plt.xlabel(\"X\")\n","    plt.ylabel(\"Residuos\")\n","    plt.title(\"Gráfico de Residuos\")\n","    plt.grid(True)\n","    plt.show()\n","\n","  def estimador_sigma2(self):\n","    n = len(self.y)\n","    residuos = self.obtener_residuos()\n","    sigma2 = np.sum(residuos**2) / (n - 2)        # Aplicando formula para hallar el estimador sigma2\n","    return sigma2\n","\n","  def t_obs(self):\n","    x_bar = np.mean(self.x)\n","    se_b1 = np.sqrt(self.estimador_sigma2() / np.sum((self.x - x_bar)**2))\n","    t_obs = self.b1 / se_b1\n","    return t_obs\n","\n","  def se_b1(self):\n","    x_bar = np.mean(self.x)\n","    se_b1_dato = np.sqrt(self.estimador_sigma2() / np.sum((self.x - x_bar)**2))\n","    return se_b1_dato\n","\n","  def t_obs_contra(self, valor_hipotetico=0):\n","    n = len(self.y)\n","    s2 = self.estimador_sigma2()\n","    se_b1 = np.sqrt(s2 / np.sum((self.x - np.mean(self.x))**2))\n","    t_obs = (self.b1 - valor_hipotetico) / se_b1\n","    return t_obs\n","\n","  def t_critico(self, alpha=0.05):\n","    gl = len(self.y) - 2\n","    return stats.t.ppf(1 - alpha/2, df=gl)\n","\n","  def decision(self, alpha=0.05):\n","    t_obs = self.t_obs()\n","    t_crit = self.t_critico(alpha)\n","    print(f\"t_obs = {t_obs:.4f}\")\n","    print(f\"Valor crítico t = ±{t_crit:.4f}\")\n","    if abs(t_obs) > t_crit:\n","        return \"Rechazo H0: La pendiente es significativamente distinta de cero.\"\n","    else:\n","        return \"No rechazo H0: No hay evidencia suficiente para afirmar que la pendiente difiere de 0.\"\n","\n","  def p_valor(self, grados):\n","    gl = len(self.y) - grados\n","    t_obs = self.t_obs()\n","    p_valor = 2 * (1 - stats.t.cdf(abs(t_obs), df=gl))\n","    return p_valor\n","\n","  def p_valor_contra(self, valor_hipotetico):\n","    t_obs = self.t_obs_contra(valor_hipotetico)\n","    gl = len(self.y) - 2\n","    p_valor = 2 * (1 - stats.t.cdf(abs(t_obs), df=gl))\n","    return p_valor\n","\n","  def intervalo_confianza(self, x_0, confianza=0.95):\n","    \"\"\"\n","    Calcula el intervalo de confianza para la predicción en un valor dado de x_0.\n","    \"\"\"\n","    # Obtenemos los parámetros de la regresión\n","    self.obtener_parametros()\n","    n = len(self.y)\n","\n","    # Calculamos el valor crítico t\n","    t_critico = stats.t.ppf(1 - (1 - confianza) / 2, df=n - 2)\n","\n","    # Estimamos el error estándar para la predicción en x_0\n","    se_b1 = np.sqrt(self.estimador_sigma2() / np.sum((self.x - np.mean(self.x))**2))\n","    se_pred = np.sqrt(self.estimador_sigma2() * (1/n + (x_0 - np.mean(self.x))**2 / np.sum((self.x - np.mean(self.x))**2)))\n","\n","    # Predicción para x_0\n","    y_pred = self.predecir(x_0)\n","\n","    # Intervalo de confianza\n","    IC_inf = y_pred - t_critico * se_pred\n","    IC_sup = y_pred + t_critico * se_pred\n","\n","    return y_pred, IC_inf, IC_sup\n","\n","  def intervalo_confianza_b1(self, confianza=0.95):\n","    gl = len(self.y) - 2\n","    t_crit = stats.t.ppf(1 - (1 - confianza) / 2, df=gl)\n","    se_b1 = np.sqrt(self.estimador_sigma2() / np.sum((self.x - np.mean(self.x))**2))\n","    IC_inf = self.b1 - t_crit * se_b1\n","    IC_sup = self.b1 + t_crit * se_b1\n","    return IC_inf, IC_sup"],"metadata":{"id":"fOk5BvrutE5e"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Analizar correlacion entre las variables | Mientras mas cerca de 1, mas correlacion\n","r = datos_serie[\"variable_y\"].corr(datos_serie[\"variable_x\"])\n","print(r)"],"metadata":{"id":"bvQVfFbt0_kJ"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Ecuacion de la recta\n","def ecuacion_recta(x, x1, y1, x2, y2):\n","    m = (y2 - y1) / (x2 - x1)  # pendiente\n","    b = y1 - m * x1            # ordenada al origen\n","    return m * x + b           # ecuación de la recta"],"metadata":{"id":"jYuIPtNU145I"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# ------------------------------------------------------------------------------\n","# ----------------------------------- MODELAR ----------------------------------\n","# ------------------------------------------------------------------------------\n","\n","import numpy as np\n","import statsmodels.api as sm\n","\n","# se arma la matriz de disño agregando la columna de unos\n","X = sm.add_constant(experiencia)\n","\n","# se define el modelo de regresión lineal\n","modelo = sm.OLS(salario, X)\n","\n","# se estiman los parámetros a partir del ajuste lineal\n","result = modelo.fit()\n","print(result.summary())\n","\n","\n","# Nuevo punto de predicción\n","x_new = 7\n","\n","# Crear la matriz de diseño con el nuevo punto de predicción\n","X_new = sm.add_constant(np.array([[1, x_new]]))\n","\n","# Intervalo de confianza para la esperanza del salario para 7 años de experiencia\n","prediccion = resultado.get_prediction(X_new)\n","print(prediccion.conf_int(alpha=0.05))\n","\n","# Obtener el intervalo de predicción para el nuevo punto\n","prediccion = resultado.get_prediction(X_new)\n","print(prediccion.conf_int(alpha =0.05))\n","print(prediccion.conf_int(obs=True , alpha =0.05))\n"],"metadata":{"id":"T-Pk3D3I8rPC"},"execution_count":null,"outputs":[]},{"cell_type":"markdown","source":["# TEMA 4: REGRESION LINEAL MULTIPLE"],"metadata":{"id":"NzD9HeZSoz6J"}},{"cell_type":"code","source":["regresion_varon = regresionLinealSimple(datos['year'][varones], datos['salary'][varones])\n","regresion_varon.obtener_parametros()\n","\n","regresion_mujer = regresionLinealSimple(datos['year'][mujeres], datos['salary'][mujeres])\n","regresion_mujer.obtener_parametros()"],"metadata":{"id":"kMsLwDl-o3D-"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Redefinimos la variable sex según la codificación 1: mujer, 0:varon\n","datos['sex']=1*(datos['sex']=='Female')\n","\n","# Se arma la matriz de diseño\n","x=datos[['sex','year']]\n","\n","# Agregando la columna de unos\n","X = sm.add_constant(x)\n","\n","# se define el modelo de regresión lineal\n","modelo = sm.OLS(y, X)\n","\n","# se estiman los parámetros a partir del ajuste lineal\n","result2 = modelo.fit()\n","print(result2.summary())\n","\n","# VEMOS EL P-VALOR, PARA SABER QUE VARIABLE SACAR\n","# SACAMOS LA QUE ESTE MAS LEJOS DEL 0.000\n","# x2 (year) : 0.000 [Como es menor a 0.05, YEAR influye en SALARY]"],"metadata":{"id":"_6ZcEaAIo8yu"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# # Evalua la funcion en 1 (constante) 1 en x1 y 8 en x2\n","np.dot(result2.params, [1, 1, 8]) #  predecir un valor\n","\n","# Por ejemplo: experiencia=10, educacion=16, año_ingreso=2010, masculino=1\n","nuevo = [1, 10, 16, 2010, 1]  # el 1 inicial es la constante\n","prediccion = np.dot(nuevo, modelo.params)\n","print(f\"Salario estimado: {prediccion:.2f}\")"],"metadata":{"id":"7YAY8fQ7pBie"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Intervalo de confianza\n","intervalo_confianza = result2.conf_int()\n","print(intervalo_confianza)"],"metadata":{"id":"SJI2ANxPpjTO"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Evaluamos los 3 modelos, vemos cual es el que mayor R2 da, nos quedamos con ese.\n","'''\n","# MODELO 1 | sex\n","import statsmodels.api as sm\n","# Se arma la matriz de disño\n","x1=datos['sex']\n","# agregando la columna de unos\n","X1 = sm.add_constant(x1)\n","# se define el modelo de regresión lineal\n","modelo1 = sm.OLS(y, X1)\n","# se estiman los parámetros a partir del ajuste lineal\n","result1 = modelo1.fit()\n","r_squared = result1.rsquared\n","print(r_squared)\n","'''\n","\n","'''\n","# MODELO 2 | sex y year\n","# Hacer una copia real\n","x2 = datos[['sex', 'year']]\n","# Armar matriz de diseño\n","X2 = sm.add_constant(x2)\n","# Definir y ajustar el modelo\n","modelo2 = sm.OLS(y, X2)\n","result2 = modelo2.fit()\n","print('Modelo 2 R²:', result2.rsquared)\n","'''\n","'''\n","# MODELO 3 | year\n","import statsmodels.api as sm\n","# Se arma la matriz de disño\n","x=datos['year']\n","# agregando la columna de unos\n","X = sm.add_constant(x)\n","# se define el modelo de regresión lineal\n","modelo3 = sm.OLS(y, X)\n","# se estiman los parámetros a partir del ajuste lineal\n","result3 = modelo3.fit()\n","r_squared = result3.rsquared\n","print(r_squared)\n","'''\n","\n","'''\n","## EVALUANDO CON R2 AJUSTADA\n","# Si R² ajustado sube al quitar una variable ⇒ esa variable no ayudaba (podés eliminarla)\n","adjusted_r_squared3 = result3.rsquared_adj\n","print(\"R cuadrado ajustado Modelo 3:\", adjusted_r_squared3)\n","adjusted_r_squared2 = result2.rsquared_adj\n","print(\"R cuadrado ajustado Modelo 2:\", adjusted_r_squared2)\n","adjusted_r_squared1 = result1.rsquared_adj\n","print(\"R cuadrado ajustado Modelo 1:\", adjusted_r_squared1)\n","'''"],"metadata":{"id":"I0JqxIZ7p57O"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Usando dot y stack\n","\n","import statsmodels.api as sm\n","import numpy as np\n","import matplotlib.pyplot as plt\n","\n","# Cargar Y, X1, X2\n","y = datos['salary']\n","x1 = 1 * (datos['sex']=='Female') # sex\n","x2 = datos['year'] # year\n","\n","# se arma la matriz de disño | el axis agrega lo agrega en formato en columna a x1 y x2\n","x = np.stack((x1, x2), axis=1)\n","# agregando la columna de unos\n","X = sm.add_constant(x)\n","modelo = sm.OLS(y, X)\n","result2 = modelo.fit()\n","#print(result2.summary())\n","ajustados=np.dot(X,result2.params) ## valores ajustados usando el modelo completo de todas las observaciones | Predecir un valor"],"metadata":{"id":"Dc2lvFYYqLE-"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Agregamos la conjuncion de variables\n","\n","import statsmodels.api as sm\n","\n","# Redefinimos la variable sex según la codificación 1: mujer, 0:varon\n","datos['sex']=1*(datos['sex']=='Female')\n","sex_year = datos['sex'] * datos['year']\n","\n","# Se arma la matriz de diseño\n","x=np.stack((datos['sex'], datos['year'],sex_year), axis=1)\n","\n","# Agregando la columna de unos\n","X = sm.add_constant(x)\n","\n","# se define el modelo de regresión lineal\n","modelo = sm.OLS(y, X)\n","\n","# se estiman los parámetros a partir del ajuste lineal\n","result2 = modelo.fit()\n","print(result2.summary())"],"metadata":{"id":"VKnUFWg-qw1l"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["import statsmodels.api as sm\n","import matplotlib.pyplot as plt\n","import seaborn as sns\n","import numpy as np\n","import pandas as pd\n","\n","class RegresionLineal:\n","    def __init__(self, x, y):\n","        self.x = x\n","        self.y = y\n","        self.modelo = None\n","        self.resultado = None\n","\n","    def ajustar_modelo(self):\n","        # Agrega constante (intercepto)\n","        x_const = sm.add_constant(self.x)\n","        self.modelo = sm.OLS(self.y, x_const)\n","        self.resultado = self.modelo.fit()\n","\n","    def mostrar_estadisticas(self):\n","        if self.resultado:\n","            print(self.resultado.summary())\n","        else:\n","            print(\"El modelo aún no fue ajustado.\")\n","\n","    def evalua_histograma(self, h=20, x=None):\n","        if self.resultado:\n","            residuos = self.resultado.resid\n","            plt.figure(figsize=(8, 4))\n","            sns.histplot(residuos, kde=True, bins=h)\n","            plt.title(\"Histograma de residuos\")\n","            plt.xlabel(\"Residuos\")\n","            plt.ylabel(\"Frecuencia\")\n","            plt.grid(True)\n","            plt.show()\n","        else:\n","            print(\"Primero ajustá el modelo con `.ajustar_modelo()`\")\n","\n","class RegresionLinealSimple(RegresionLineal):\n","    def __init__(self, x, y):\n","        x = np.array(x).reshape(-1, 1)  # Garantizar forma columna\n","        super().__init__(x, y)\n","\n","    def predecir(self, new_x):\n","        if self.resultado:\n","            new_x = sm.add_constant(np.array(new_x).reshape(-1, 1))\n","            return self.resultado.predict(new_x)\n","        else:\n","            print(\"Primero ajustá el modelo con `.ajustar_modelo()`\")\n","\n","    def graficar_recta_ajustada(self):\n","        if self.resultado:\n","            plt.figure(figsize=(8, 5))\n","            plt.scatter(self.x, self.y, label='Datos')\n","            plt.plot(self.x, self.resultado.predict(sm.add_constant(self.x)), color='red', label='Recta ajustada')\n","            plt.xlabel(\"X\")\n","            plt.ylabel(\"Y\")\n","            plt.title(\"Recta de regresión lineal simple\")\n","            plt.legend()\n","            plt.grid(True)\n","            plt.show()\n","        else:\n","            print(\"Primero ajustá el modelo con `.ajustar_modelo()`\")\n","\n","class RegresionLinealMultiple(RegresionLineal):\n","    def __init__(self, x, y):\n","        # x puede ser DataFrame o array 2D\n","        if isinstance(x, pd.Series):\n","            x = x.to_frame()\n","        super().__init__(x, y)\n","\n","    def predecir(self, new_x):\n","        if self.resultado:\n","            if isinstance(new_x, (list, np.ndarray)):\n","                new_x = np.array(new_x)\n","                if new_x.ndim == 1:\n","                    new_x = new_x.reshape(1, -1)\n","                new_x = sm.add_constant(new_x)\n","            elif isinstance(new_x, pd.DataFrame):\n","                new_x = sm.add_constant(new_x)\n","            return self.resultado.predict(new_x)\n","        else:\n","            print(\"Primero ajustá el modelo con `.ajustar_modelo()`\")"],"metadata":{"id":"AjGoYu_ssL6f"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# 3 - Listá los supuestos del modelo. ¿Se cumplen en este caso?\n","\n","'''\n","✅ 1. Linealidad\n","Supuesto: La relación entre las variables independientes y la dependiente es lineal.\n","Chequeo: Gráfico de residuos vs valores ajustados. Si los residuos no muestran un patrón claro → se cumple.\n","En tu caso: Si el gráfico no muestra curvas ni estructuras → probablemente se cumple.\n","\n","✅ 2. Independencia de los errores\n","Supuesto: Los errores no están correlacionados entre sí.\n","Chequeo: Test de Durbin-Watson (en model.summary()), debería estar cerca de 2.\n","En tu caso: Si el valor de Durbin-Watson está entre 1.5 y 2.5 → se considera que se cumple.\n","\n","❓ 3. Homocedasticidad (varianza constante de los errores)\n","Supuesto: Los errores tienen varianza constante para todos los niveles de X.\n","Chequeo: Gráfico de residuos vs valores ajustados. Si los residuos se dispersan de forma uniforme → se cumple.\n","En tu caso: Si ves forma de “cono” o “embudo”, hay heterocedasticidad → no se cumple totalmente.\n","\n","✅ 4. Normalidad de los errores\n","Supuesto: Los errores (residuos) se distribuyen normalmente.\n","Chequeo: Histograma de residuos o gráfico Q-Q.\n","En tu caso: Si el gráfico Q-Q se acerca a la línea diagonal → se cumple.\n","\n","✅ 5. No multicolinealidad\n","Supuesto: Las variables independientes no están fuertemente correlacionadas entre sí.\n","Chequeo: Matriz de correlaciones o el VIF (Variance Inflation Factor). Si VIF < 5, no hay colinealidad preocupante.\n","En tu caso: Si Air.Flow, Water.Temp y Acid.Conc. no están altamente correlacionadas → se cumple.\n","'''\n"],"metadata":{"id":"JVPmp5Iys9Ew"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# 5 - En caso de que puedas, proponé un modelo con menos predictoras que las consideradas que expliquen a la respuesta como el modelo completo (con las 3 predictoras).\n","from statsmodels.stats.anova import anova_lm\n","\n","# Variables predictoras\n","X_full = sm.add_constant(df[['Air.Flow', 'Water.Temp', 'Acid.Conc.']])\n","X_reduced = sm.add_constant(df[['Air.Flow', 'Water.Temp']])\n","\n","# Modelos\n","model_full = sm.OLS(y, X_full).fit()\n","model_reduced = sm.OLS(y, X_reduced).fit()\n","\n","# Comparación con ANOVA\n","anova_results = anova_lm(model_reduced, model_full)\n","print(\"\\nANOVA entre modelo reducido y completo:\")\n","print(anova_results)\n","\n","# Resumen del modelo reducido\n","print(\"\\nResumen del modelo reducido:\")\n","print(model_reduced.summary())\n"],"metadata":{"id":"UoJ9xO6atYZH"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["# Usando Dummies\n","\n","import pandas as pd\n","import statsmodels.api as sm\n","\n","# Simulación de ejemplo de datos\n","df = pd.DataFrame({\n","    'salario': [50000, 48000, 53000, 47000, 55000],\n","    'experiencia': [5, 4, 6, 3, 7],\n","    'sexo': ['masculino', 'femenino', 'masculino', 'femenino', 'masculino']\n","})\n","\n","# 1. Crear dummies de 'sexo' (omitimos una categoría como referencia, en este caso 'femenino')\n","dummies = pd.get_dummies(df['sexo'], drop_first=True)\n","df = pd.concat([df, dummies], axis=1)\n","\n","# 2. Variables predictoras (experiencia y sexo masculino dummy)\n","X = df[['experiencia', 'masculino']]\n","X = sm.add_constant(X)  # Agregar constante\n","\n","# 3. Variable respuesta\n","y = df['salario']\n","\n","# 4. Ajustar modelo\n","modelo = sm.OLS(y, X).fit()\n","\n","# 5. Mostrar resumen\n","print(modelo.summary())"],"metadata":{"id":"lzK3l7rFuAiI"},"execution_count":null,"outputs":[]},{"cell_type":"markdown","source":["---"],"metadata":{"id":"sN_ifUEX5IiQ"}},{"cell_type":"markdown","source":["---"],"metadata":{"id":"9DII_kvbDHY3"}},{"cell_type":"code","source":["\"\"\"\n","mi_modulo: resumen\n","-------------------------\n","\n","Este módulo proporciona las clases para realizar Analisis Descriptivo, Generar Datos, Regresion Lineal y Regresion Logistica\n","\n","Clases:\n","    AnalisisDescriptivo: Realiza estimación de densidad mediante histogramas o núcleos.\n","    GeneradoraDeDatos: Genera conjuntos de datos con distintas distribuciones y permite obtener su densidad teórica.\n","    Regresion: Clase base para modelos de regresión.\n","    RegresionLineal: Implementa una regresión lineal simple.\n","    RegresionLogistica: Implementa una regresión logística.\n","\"\"\"\n","# FALTA COMENTAR Y REVISAR\n","class AnalisisDescriptivo:\n","  \"\"\"\n","  Realiza estimación de densidad mediante histogramas o núcleos.\n","  \"\"\"\n","  def __init__(self, datos):\n","      self.datos = datos\n","\n","  def calcular_histograma(self, h):\n","      \"\"\"\n","      Calcula un histograma manual con ancho de banda h.\n","      \"\"\"\n","      minimo, maximo = min(self.datos), max(self.datos)\n","      bordes = np.arange(minimo, maximo + h, h)\n","      histograma, _ = np.histogram(self.datos, bins=bordes, density=True)\n","      centros = (bordes[:-1] + bordes[1:]) / 2\n","      return centros, histograma\n","\n","  def evalua_histograma(self, h, x):\n","      bordes, densidad = self.calcular_histograma(h)\n","      res = []\n","\n","      for valor in x:\n","          for i in range(len(bordes) - 1):\n","              if bordes[i] <= valor < bordes[i + 1]:\n","                  res.append(densidad[i])\n","                  break\n","          else:\n","              res.append(0)  # Si está fuera de los intervalos, asignar 0\n","\n","      return res\n","\n","  def calcular_densidad_nucleo(self, h, kernel):\n","      \"\"\"\n","      Estima la densidad mediante núcleos.\n","      \"\"\"\n","      x_vals = np.linspace(min(self.datos), max(self.datos), 1000)\n","      n = len(self.datos)\n","      density = np.zeros_like(x_vals, dtype=float)\n","\n","      # Definir los kernels\n","      if kernel == 'gaussiano':\n","          def k_func(u): return (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * u**2)\n","      elif kernel == 'uniforme':\n","          def k_func(u): return (np.abs(u) <= 0.5).astype(float)\n","      elif kernel == 'cuadratica':\n","          def k_func(u): return (3/4 * (1 - u**2) * (np.abs(u) <= 1).astype(float))\n","      elif kernel == 'triangular':\n","          def k_func(u): return (1 - np.abs(u)) * (np.abs(u) <= 1).astype(float)\n","      else:\n","          raise ValueError(\"Kernel no reconocido. Usa 'gaussiano', 'uniforme', 'cuadratica' o 'triangular'.\")\n","\n","      for i in range(len(x_vals)):\n","          u = (x_vals[i] - self.datos) / h\n","          density[i] = np.sum(k_func(u)) / (n * h)\n","      return x_vals, density\n","\n","# FALTA COMENTAR Y REVISAR\n","class GeneradoraDeDatos:\n","  \"\"\"\n","  Genera conjuntos de datos con distintas distribuciones y permite obtener su densidad teórica.\n","  \"\"\"\n","  def __init__(self, n):\n","      self.n = n\n","      self.datos = None\n","\n","  def generar_datos(self, distribucion=\"normal\", loc=0, scale=1):\n","      \"\"\"\n","      Genera datos de la distribución seleccionada.\n","      \"\"\"\n","      if distribucion == \"normal\":\n","          self.datos = np.random.normal(loc=loc, scale=scale, size=self.n)\n","      elif distribucion == \"uniforme\":\n","          self.datos = np.random.uniform(low=loc, high=scale, size=self.n)\n","      elif distribucion == \"bs\":\n","          self.datos = self.generar_datos_bs()\n","      else:\n","          raise ValueError(\"Distribución no reconocida. Usa 'normal', 'uniforme' o 'bs'.\")\n","\n","  def generar_datos_bs(self):\n","      \"\"\"\n","      Genera datos con la distribución BS propuesta.\n","      \"\"\"\n","      u = np.random.uniform(size=(self.n,))\n","      y = u.copy()\n","      ind = np.where(u > 0.5)[0]\n","      y[ind] = np.random.normal(0, 1, size=len(ind))\n","      for j in range(5):\n","          ind = np.where((u > j * 0.1) & (u <= (j+1) * 0.1))[0]\n","          y[ind] = np.random.normal(j/2 - 1, 1/10, size=len(ind))\n","      return y\n","\n","  def obtener_densidad_teorica(self, x, tipo=\"normal\"):\n","      \"\"\"\n","      Obtiene la densidad teórica de la distribución generada.\n","      \"\"\"\n","      if self.datos is None:\n","          raise ValueError(\"Primero se deben generar los datos.\")\n","\n","      if tipo == \"normal\":\n","          mu, sigma = np.mean(self.datos), np.std(self.datos)\n","          return stats.norm.pdf(x, loc=mu, scale=sigma)\n","      elif tipo == \"bs\":\n","          return 0.5 * stats.norm.pdf(x, 0, 1) + 0.1 * sum([stats.norm.pdf(x, j/2 - 1, 1/10) for j in range(5)])\n","      elif tipo == \"uniforme\":\n","          a, b = min(self.datos), max(self.datos)\n","          return np.ones_like(x) / (b - a) * ((x >= a) & (x <= b))\n","      else:\n","          raise ValueError(\"Tipo debe ser 'normal', 'bs' o 'uniforme'.\")\n","\n","class Regresion:\n","  \"\"\"\n","  Clase base para modelos de regresión.\n","  \"\"\"\n","  def __init__(self, X, y):\n","    \"\"\"\n","      Inicializa los atributos de la clase.\n","    \"\"\"\n","    self.X = X\n","    self.y = y\n","    self.modelo = None\n","    self.resultados = None\n","    self.betass = None\n","    self.errores_estandar = None\n","    self.t_obs = None\n","    self.p_valor = None\n","\n","  def predecir(self, X_nuevo):\n","    \"\"\"\n","    Predecir valores de respuesta ante nuevas entradas.\n","\n","    Args:\n","        X_nuevo: Nuevos valores de las variables predictoras.\n","    \"\"\"\n","    return self.resultados.predict(X_nuevo)\n","\n","  def mostrar_parametros(self):\n","    \"\"\"\n","    Mostrar los parámetros del modelo.\n","    \"\"\"\n","    dic_datos = {\n","        \"Beta\": self.betass,\n","        \"Std Error\": self.errores_estandar,\n","        \"t_obs\": self.t_obs,\n","        \"p_valor\": self.p_valor\n","    }\n","    dataframe = pd.DataFrame(dic_datos)\n","    return dataframe\n","\n","  # No hace lo mismo que mostrar_parametros?\n","  def mostrar_estadisticas(self):\n","    \"\"\"\n","    Mostrar las estadísticas del modelo.\n","    \"\"\"\n","    return self.resultados.summary()\n","\n","class RegresionLineal(Regresion):\n","  \"\"\"\n","  Clase hija de Regresion. Sirve para realizar cálculos de regresión lineal simple utilizando la librería statsmodels.\n","  \"\"\"\n","  def ajustar_modelo(self):\n","    \"\"\"\n","    Iniciliza los valores de Regresion Lineal en base a lo datos de Regresion.\n","    \"\"\"\n","    self.modelo = sm.OLS(self.y, self.X)  # Preparo el modelo\n","    self.resultados = self.modelo.fit()   # Entreno el modelo\n","    self._extraer_estadisticas()          # Exraer estadisticas??\n","\n","  def graficar_dispersion_y_recta(self):\n","    \"\"\"\n","    Grafica la dispersión de puntos (en base a los datos) y la recta de mejor ajuste\n","    En caso de ser una variable predictora cuantitativa, graficar cada una de ellas vs la respuesta.\n","    \"\"\"\n","    for col in self.X.columns[1:]:\n","        plt.figure()\n","        sns.scatterplot(x=self.X[col], y=self.y)  # Utilizo el [col] para acceder a todo los valores en caso de que sean muchas variables.\n","        pred = self.resultados.predict(self.X)    # Predice\n","        sns.lineplot(x=self.X[col], y=pred)       # Grafica la recta\n","        plt.title(f'{col} vs y')\n","        plt.show()\n","\n","  def coef_correlacion(self):\n","    \"\"\"\n","    Calcula el coeficiente de correlación entre la variable predictora y la variable respuesta\n","    \"\"\"\n","        for col in self.X.columns[1:]:\n","            corr = np.corrcoef(self.X[col], self.y)[0, 1]\n","            print(f\"Coeficiente de correlación ({col}): {corr:.4f}\")\n","\n","  # Ajustar el modelo mediante mínimos cuadrados y estimar los parámetros correspondientes.\n","  # ...\n","  # ...\n","  # ...\n","\n","  def residuos_analisis(self):\n","    \"\"\"\n","    Realiza el análisis de los residuos.\n","    Graficar qqPlot.\n","    Graficar residuos vs valores predichos.\n","    \"\"\"\n","      residuos = self.resultados.resid\n","      predichos = self.resultados.predict(self.X)\n","\n","      # QQ Plot\n","      sm.qqplot(residuos, line='45')\n","      plt.title(\"QQ Plot de residuos\")\n","      plt.show()\n","\n","      # Residuales vs valores predichos\n","      plt.figure()\n","      sns.scatterplot(x=predichos, y=residuos)\n","      plt.axhline(0, color='red', linestyle='--')\n","      plt.title(\"Residuos vs Valores predichos\")\n","      plt.xlabel(\"Valores predichos\")\n","      plt.ylabel(\"Residuos\")\n","      plt.show()\n","\n","  def _extraer_estadisticas(self):\n","      \"\"\"\n","      Almacena y retorn los valores de los betas, errores standars, t_obs y p-valor.\n","      Retorna los valores de las betas, errores standars, t_obs y p-valor. (En ese orden)\n","      \"\"\"\n","      self.betass = self.resultados.params\n","      self.errores_estandar = self.resultados.bse\n","      self.t_obs = self.resultados.tvalues\n","      self.p_valor = self.resultados.pvalues\n","      return self.betass, self.errores_estandar, self.t_obs, self.p_valor\n","\n","# REVISAR\n","  def intervalos_confianza_y_prediccion(self, X_nuevo):\n","    \"\"\"\n","    Calcula intervalos de confianza y de predicción.\n","    Retorna un diccionario con los intervalos de confianza y predicciones.\n","    Args:\n","        X_nuevo: Nuevos valores de las variables predictoras.\n","    \"\"\"\n","    # Intervalos de confianza para los betas\n","    intervalo_confianza = self.resultados.conf_int()\n","    intervalo_confianza.columns = ['Conf. Inf.', 'Conf. Sup.']\n","\n","    # Intervalos de predicción para nuevas observaciones\n","    X_nuevo = sm.add_constant(X_nuevo)\n","    predicciones = self.resultados.get_prediction(X_nuevo)\n","    prediccion_resumen = predicciones.summary_frame(alpha=0.05)  # incluye predicción puntual + IC + IP\n","\n","    # Devolver ambos DataFrames juntos\n","    intervalos = {\n","        \"intervalos_betas\": intervalo_confianza,\n","        \"predicciones\": prediccion_resumenv\n","    }\n","    return intervalos\n","\n","  def R2_y_R2ajustado(self):\n","    \"\"\"\n","    Calcula el coeficiente de determinación (R cuadrado) y el R cuadrado ajustado.\n","    Retorna un diccionario con los valores de R cuadrado y R cuadrado ajustado. (En ese orden)\n","    \"\"\"\n","    dic_r2_r2adj = {\n","        \"R2\": self.resultados.rsquared,\n","        \"R2_ajustado\": self.resultados.rsquared_adj\n","    }\n","    df = pd.DataFrame(dic_r2_r2adj)\n","    return df\n","\n","class RegresionLogistica(Regresion):\n","  def ajustar_modelo(self, porcentaje_entrenamiento=0.7):\n","      \"\"\"\n","      Iniciliza los valores de Regresion Lineal en base a lo datos de Regresion.\n","\n","      Args:\n","          porcentaje_entrenamiento: Porcentaje de datos para entrenamiento (base en 70%).\n","      \"\"\"\n","      n = int(len(self.X) * porcentaje_entrenamiento)\n","      self.X_train, self.y_train = self.X[:n], self.y[:n] # Guarda los valores de 0 al n del % pedido\n","      self.X_test, self.y_test = self.X[n:], self.y[n:] # Guarda los valores de n al final\n","\n","      self.modelo = sm.Logit(self.y_train, self.X_train) # Entrena el modelo on sm.Logit\n","      self.resultados = self.modelo.fit()\n","      self._extraer_estadisticas()\n","\n","  # Almacenar y retornar los valores de los betas, errores standars, t_obs y p-valor.\n","  # ES EL MISMO QUE UTILIZO PRA REGRESION LINEAL | VER DE AGREGAR EN LA CLASE PADRE REGRESION\n","  def _extraer_estadisticas(self):\n","    self.betass = self.resultados.params\n","    self.errores_estandar = self.resultados.bse\n","    self.t_obs = self.resultados.tvalues\n","    self.p_valor = self.resultados.pvalues\n","\n","  def evaluar_clasificador(self, umbral=0.5):\n","    \"\"\"\n","    Calcular matriz de confusion, error total de mala clasificacion, sensibilidad y especificidad\n","    Retorna un diccionario con los valores de Matriz de confusion, sensibilidad, especificidad y error total. (En ese orden)\n","\n","    Args:\n","        umbral: Umbral para clasificar los datos.\n","    \"\"\"\n","    y_prob = self.resultados.predict(self.X_test)\n","    y_pred = (y_prob >= umbral).astype(int)\n","    matriz = confusion_matrix(self.y_test, y_pred) # VER SI PUEDO USAR ESTO\n","    tn, fp, fn, tp = matriz.ravel()  # VER QUE HACE ESTO\n","\n","    sensibilidad = tp / (tp + fn)\n","    especificidad = tn / (tn + fp)\n","    error_total = (fp + fn) / len(self.y_test)\n","\n","    dic_resumen = {\n","        \"Matriz de Confusión\": matriz,\n","        \"Sensibilidad\": sensibilidad,\n","        \"Especificidad\": especificidad,\n","        \"Error Total\": error_total\n","    }\n","    df = pd.DataFrame(dic_resumen)\n","    return df\n","\n","  def predecir(self, X_nuevo, umbral=0.5):\n","    \"\"\"\n","    Predecir valores de respuesta ante nuevas entradas.\n","\n","    Args:\n","        X_nuevo: Nuevos valores de las variables predictoras.\n","        umbral: Umbral para clasificar los datos.\n","    \"\"\"\n","    X_nuevo = sm.add_constant(X_nuevo)\n","    probs = self.resultados.predict(X_nuevo)\n","    return (probs >= umbral).astype(int)\n","\n","  def curva_roc(self):\n","    \"\"\"\n","    Calcula y grafíca la curva ROC y calcula el área bajo la curva (AUC).\n","    Retorna el valor del area bajo la curva (AUC).\n","    \"\"\"\n","    y_prob = self.resultados.predict(self.X_test) # Utilizo los datos X_test\n","    fpr, tpr, _ = roc_curve(self.y_test, y_prob) # Calculo la curva ROC\n","    auc = roc_auc_score(self.y_test, y_prob) # Calculo el area bajo la curva (AUC)\n","\n","    # Grafico la curva ROC\n","    plt.figure()\n","    plt.plot(fpr, tpr, label=f'AUC = {auc:.3f}')\n","    plt.plot([0, 1], [0, 1], 'k--')\n","    plt.xlabel(\"Falso Positivo\")\n","    plt.ylabel(\"Verdadero Positivo\")\n","    plt.title(\"Curva ROC\")\n","    plt.legend()\n","    plt.show()\n","\n","    if auc >= 0.9:\n","        evaluacion = \"Excelente (0.9 a 1)\"\n","    elif auc >= 0.8:\n","        evaluacion = \"Muy bueno (0.8 a 0.9)\"\n","    elif auc >= 0.7:\n","        evaluacion = \"Bueno (0.7 a 0.8)\"\n","    elif auc >= 0.6:\n","        evaluacion = \"Regular (0.6 a 0.7)\"\n","    else:\n","        evaluacion = \"Pobre (0.5 a 0.6)\"\n","\n","    resultado = {\n","        \"AUC\": auc,\n","        \"Evaluación\": evaluacion\n","    }\n","\n","    return resultado"],"metadata":{"id":"a5sLEvUpDInY"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["from google.colab import drive\n","drive.mount('/content/drive')\n","\n","import sys\n","sys.path.append('/content/drive/MyDrive/ColabModulos')\n","import mi_modulo"],"metadata":{"id":"10QKHFCMEEhO"},"execution_count":null,"outputs":[]},{"cell_type":"code","source":["import importlib\n","importlib.reload(mi_modulo)"],"metadata":{"id":"c-CJrcicEaHU"},"execution_count":null,"outputs":[]}]}
+# -*- coding: utf-8 -*-
+"""mi_libreria
+
+Automatically generated by Colab.
+
+Original file is located at
+    https://colab.research.google.com/drive/1gkIqE2kqVltF4L2NSOhKcC9NrKJWjKj_
+"""
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import statsmodels.api as sm
+from scipy import stats
+from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
+
+"""
+mi_modulo: resumen
+-------------------------
+
+Este módulo proporciona las clases para realizar Analisis Descriptivo, Generar Datos, Regresion Lineal y Regresion Logistica
+
+Clases:
+    AnalisisDescriptivo: Realiza estimación de densidad mediante histogramas o núcleos.
+    GeneradoraDeDatos: Genera conjuntos de datos con distintas distribuciones y permite obtener su densidad teórica.
+    Regresion: Clase base para modelos de regresión.
+    RegresionLineal: Implementa una regresión lineal simple.
+    RegresionLogistica: Implementa una regresión logística.
+"""
+class AnalisisDescriptivo:
+  """
+  Realiza estimación de densidad mediante histogramas o núcleos.
+  """
+  def __init__(self, datos):
+    self.datos = datos
+
+  def calcular_histograma(self, h):
+    """
+    Calcula un histograma manual con ancho de banda h.
+    """
+    if self.datos is None:
+        raise ValueError("Primero se deben generar los datos con generar_datos().") # Mensaje de aviso si antes no se cargaron los datos
+    minimo, maximo = min(self.datos), max(self.datos)                   # Calculamos minimo y maximo
+    bordes = np.arange(minimo, maximo + h, h)                           # Calculamos los bordes
+    histograma, _ = np.histogram(self.datos, bins=bordes, density=True) # Utilizo el _ porque no me interesa guardar el 2do valor que retorna np.histogram()
+
+    return bordes, histograma
+
+  def evalua_histograma(self, h, x):
+      bordes, densidad = self.calcular_histograma(h)
+      res = []
+      for valor in x:                                   # Para cada valor en x
+          for i in range(len(bordes) - 1):              # Recorremos todos los bordes
+              if bordes[i] <= valor < bordes[i + 1]:    # Verificamos si el valor esta entre los limites inf y sup de los bordes para cada bin
+                  res.append(densidad[i])               # Lo agregamos a la lista que corresponda
+                  break                                 # Hacemos un break para terminar ese for que revisa los bins
+          else:
+              res.append(0)                             # Si está fuera de los intervalos, asignar 0
+      return res
+
+  def calcular_densidad_nucleo(self, h, kernel):
+      """
+      Estima la densidad mediante núcleos.
+      """
+      x_vals = np.linspace(min(self.datos), max(self.datos), 1000) # Generamos una grilla de 1000 datos.
+      n = len(self.datos)
+      densidad = np.zeros_like(x_vals, dtype=float)
+
+      # Definir los kernels
+      if kernel == 'gaussiano':
+          def k_func(u): return (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * u**2)
+      elif kernel == 'uniforme':
+          def k_func(u): return (np.abs(u) <= 0.5).astype(float)
+      elif kernel == 'cuadratica':
+          def k_func(u): return (3/4 * (1 - u**2) * (np.abs(u) <= 1).astype(float))
+      elif kernel == 'triangular':
+          def k_func(u): return (1 - np.abs(u)) * (np.abs(u) <= 1).astype(float)
+      else:
+          raise ValueError("Kernel no reconocido. Usa 'gaussiano', 'uniforme', 'cuadratica' o 'triangular'.")
+
+      for i in range(len(x_vals)):                    # Para cada valor i en el vector
+          u = (x_vals[i] - self.datos) / h            # Calculamos el u
+          densidad[i] = np.sum(k_func(u)) / (n * h)   # Calculamos la densidad para cada i
+      return x_vals, densidad
+
+class GeneradoraDeDatos:
+  """
+  Genera conjuntos de datos con distintas distribuciones y permite obtener su densidad teórica.
+  """
+  def __init__(self, n):
+      self.n = n
+      self.datos = None
+
+  def generar_datos(self, distribucion="normal", loc=0, scale=1):
+      """
+      Genera datos de la distribución seleccionada.
+      """
+      if distribucion == "normal":
+          self.datos = np.random.normal(loc=loc, scale=scale, size=self.n) # Aplica la generacion para distribucion normal
+      elif distribucion == "uniforme":
+          self.datos = np.random.uniform(low=loc, high=scale, size=self.n) # Aplica la generacion para distribucion uniforme
+      elif distribucion == "bs":
+          self.datos = self.generar_datos_bs() # Aplica la generacion para distribucion bs, llamando a la funcion generar_datos_bs()
+      else:
+          raise ValueError("Distribución no reconocida. Usa 'normal', 'uniforme' o 'bs'.") # Utilizo el raise para devolver un mensaje de error si la palabra es incorrecta.
+
+  def generar_datos_bs(self):
+      """
+      Genera datos con la distribución BS. Funciona internamente en la funcion generar_datos() cuando se elige la distribución bs.
+      """
+      u = np.random.uniform(size=(self.n,))
+      y = u.copy()
+      ind = np.where(u > 0.5)[0]
+      y[ind] = np.random.normal(0, 1, size=len(ind))
+      for j in range(5):
+          ind = np.where((u > j * 0.1) & (u <= (j+1) * 0.1))[0]
+          y[ind] = np.random.normal(j/2 - 1, 1/10, size=len(ind))
+      return y
+
+  def obtener_densidad_teorica(self, x, tipo="normal"):
+      """
+      Obtiene la densidad teórica de la distribución generada. Con "normal" como valor default.
+      """
+      if self.datos is None:
+          raise ValueError("Primero se deben generar los datos.")
+
+      if tipo == "normal":
+          mu, sigma = np.mean(self.datos), np.std(self.datos)
+          return stats.norm.pdf(x, loc=mu, scale=sigma)
+      elif tipo == "bs":
+          return 0.5 * stats.norm.pdf(x, 0, 1) + 0.1 * sum([stats.norm.pdf(x, j/2 - 1, 1/10) for j in range(5)])
+      elif tipo == "uniforme":
+          a, b = min(self.datos), max(self.datos)
+          return np.ones_like(x) / (b - a) * ((x >= a) & (x <= b))
+      else:
+          raise ValueError("Tipo debe ser 'normal', 'bs' o 'uniforme'.")
+
+class Regresion:
+  """
+  Clase base para modelos de regresión.
+  """
+  def __init__(self, X, y):
+    """
+    Inicializa los atributos de la clase.
+    """
+    self.X = X
+    self.y = y
+    self.X_train = None
+    self.y_train = None
+    self.X_test = None
+    self.y_test = None
+    self.modelo = None
+    self.resultados = None
+    self.betass = None
+    self.errores_estandar = None
+    self.t_obs = None
+    self.p_valor = None
+
+  def predecir(self, X_nuevo):
+    """
+    Predecir valores de respuesta ante nuevas entradas.
+
+    Args:
+        X_nuevo: Nuevos valores de las variables predictoras.
+    """
+    return self.resultados.predict(X_nuevo)
+
+  def mostrar_parametros(self):
+    """
+    Mostrar los parámetros del modelo.
+    """
+    dic_datos = {
+        "Beta": self.betass,
+        "Std Error": self.errores_estandar,
+        "t_obs": self.t_obs,
+        "p_valor": self.p_valor
+    }
+    dataframe = pd.DataFrame(dic_datos)
+    return dataframe
+
+  def mostrar_estadisticas(self):
+    """
+    Mostrar las estadísticas del modelo.
+    """
+    return self.resultados.summary()
+
+  def _extraer_estadisticas(self):
+    """
+    Almacena y retorna los valores de los betas, errores standars, t_obs y p-valor (En ese orden).
+    """
+    self.betass = self.resultados.params
+    self.errores_estandar = self.resultados.bse
+    self.t_obs = self.resultados.tvalues
+    self.p_valor = self.resultados.pvalues
+    return self.betass, self.errores_estandar, self.t_obs, self.p_valor
+
+  def asignar_test(self, X_test, y_test):
+    self.X_test = X_test
+    self.y_test = y_test
+
+  def asignar_train (self, X_train, y_train):
+    self.X_train = X_train
+    self.y_train = y_train
+
+class RegresionLineal(Regresion):
+  """
+  Clase hija de Regresion. Sirve para realizar cálculos de regresión lineal simple utilizando la librería statsmodels.
+  """
+  def ajustar_modelo_lineal(self):
+    """
+    Iniciliza los valores de Regresion Lineal en base a lo datos de Regresion.
+    """
+    self.modelo = sm.OLS(self.y, self.X)  # Preparo el modelo
+    self.resultados = self.modelo.fit()   # Entreno el modelo
+    self._extraer_estadisticas()          # Exraer estadisticas??
+
+  def graficar_dispersion_y_recta(self):
+    """
+    Grafica la dispersión de puntos (en base a los datos) y la recta de mejor ajuste. Cuando ambas son cuanti.
+    """
+    for col in self.X.columns[1:]:
+        plt.figure()
+        sns.scatterplot(x=self.X[col], y=self.y)  # Utilizo el [col] para acceder a todo los valores en caso de que sean muchas variables.
+        pred = self.resultados.predict(self.X)    # Predice
+        sns.lineplot(x=self.X[col], y=pred)       # Grafica la recta
+        plt.title(f'{col} vs y')
+        plt.show()
+
+  def graficar_anova(self, variable_categorica_original):
+    """
+    Grafica de forma adecuada para un modelo con variables categóricas. Util para ANOVA.
+    Requiere pasar la variable categórica original (como una Serie).
+    """
+    df = pd.DataFrame({'ventas': self.y, 'categoria': variable_categorica_original})
+    plt.figure(figsize=(8,5))
+    sns.boxplot(x='categoria', y='ventas', data=df)
+    sns.stripplot(x='categoria', y='ventas', data=df, color='black', alpha=0.4, jitter=0.15)
+    plt.title("Distribución de ventas por altura del producto")
+    plt.show()
+
+  def coef_correlacion(self):
+    """
+    Calcula el coeficiente de correlación entre la variable predictora y la variable respuesta
+    """
+    for col in self.X.columns[1:]:
+        corr = np.corrcoef(self.X[col], self.y)[0, 1]
+        print(f"Coeficiente de correlación ({col}): {corr:.4f}")
+
+  def residuos_analisis(self):
+    """
+    Realiza el análisis de los residuos.
+    Graficar qqPlot y residuos vs valores predichos.
+    """
+    residuos = self.resultados.resid
+    predichos = self.resultados.predict(self.X)
+
+    # QQ Plot mejorado
+    sm.qqplot(residuos, line='45', dist=stats.norm, scale=residuos.std(), loc=residuos.mean()) # Ajusto la distancia y las escalas para que se vean bien en el gráfico
+    plt.title("QQ Plot de residuos")
+    plt.xlim(residuos.min()*1.5, residuos.max()*1.5)  # Acomodo el zoom en eje X
+    plt.ylim(residuos.min()*1.5, residuos.max()*1.5)  # Acomodo el zoom en eje Y
+    plt.grid(True)
+    plt.show()
+
+    # Residuos vs predicciones
+    plt.figure()
+    plt.scatter(predichos, residuos)
+    plt.axhline(0, color='red', linestyle='--')
+    plt.title("Residuos vs Valores predichos")
+    plt.xlabel("Valores predichos")
+    plt.ylabel("Residuos")
+    plt.grid(True)
+    plt.show()
+
+  def intervalos_confianza(self):
+    """
+    Calcula intervalos de confianza.
+    Retorna los intervalos de confianza en tabla. | Utilizarlo con print(modelo.intervalos_confianza())
+    """
+    # Intervalos de confianza para los betas
+    intervalo_confianza = self.resultados.conf_int()
+    intervalo_confianza.columns = ['Conf. Inf.', 'Conf. Sup.']
+
+    return intervalo_confianza
+  def intervalos_prediccion(self, X_nuevo):
+    """
+    Calcula intervalos de predicción.
+    Retorna los intervalos de prediccion.
+    Args:
+        X_nuevo: Nuevos valores de las variables predictoras.
+    """
+    # Intervalos de predicción para nuevas observaciones
+    X_nuevo = sm.add_constant(X_nuevo)
+    predicciones = self.resultados.get_prediction(X_nuevo)
+    prediccion_resumen = predicciones.summary_frame(alpha=0.05)  # incluye predicción puntual + IC + IP
+
+    return prediccion_resumen
+
+  def R2_y_R2ajustado(self):
+    """
+    Calcula el coeficiente de determinación (R cuadrado) y el R cuadrado ajustado.
+    Retorna un diccionario con los valores de R cuadrado y R cuadrado ajustado. (En ese orden)
+    """
+    dic_r2_r2adj = {
+        "R2": self.resultados.rsquared,
+        "R2_ajustado": self.resultados.rsquared_adj
+    }
+    df = pd.DataFrame(dic_r2_r2adj)
+    return df
+
+class RegresionLogistica(Regresion):
+  def ajustar_modelo(self):
+    """
+    Ajusta el modelo de regresión logística usando statsmodels.
+    """
+    self.modelo = sm.Logit(self.y, self.X)
+    self.resultados = self.modelo.fit()
+    self._extraer_estadisticas()
+
+  def evaluar_clasificador(self, umbral=0.5):
+    """
+    Calcular matriz de confusion, error total de mala clasificacion, sensibilidad y especificidad
+    Retorna un diccionario con los valores de Matriz de confusion, sensibilidad, especificidad y error total. (En ese orden)
+
+    Args:
+        umbral: Umbral para clasificar los datos.
+    """
+    y_prob = self.resultados.predict(self.X_test)
+    y_pred = (y_prob >= umbral).astype(int)
+    matriz = pd.crosstab(y_pred, self.y_test, rownames=['Predicción'], colnames=['Real'])
+    # Accedemos de forma segura
+    tn = matriz.loc[0, 0]
+    fp = matriz.loc[1, 0]
+    fn = matriz.loc[0, 1]
+    tp = matriz.loc[1, 1]
+
+    sensibilidad = tp / (tp + fn)
+    especificidad = tn / (tn + fp)
+    error_total = (fp + fn) / len(self.y_test)
+
+    return {
+        "Matriz de Confusión": matriz,
+        "Sensibilidad": sensibilidad,
+        "Especificidad": especificidad,
+        "Error Total": error_total
+    }
+
+  def predecir(self, X_nuevo, umbral=0.5):
+    """
+    Predecir valores de respuesta ante nuevas entradas.
+
+    Args:
+        X_nuevo: Nuevos valores de las variables predictoras.
+        umbral: Umbral para clasificar los datos.
+    """
+    X_nuevo = sm.add_constant(X_nuevo)
+    probs = self.resultados.predict(X_nuevo)
+    return (probs >= umbral).astype(int)
+
+  def curva_roc(self):
+    """
+    Calcula y grafica la curva ROC, el AUC, y determina el punto de corte óptimo (índice de Youden).
+    Retorna un diccionario con AUC, evaluación cualitativa, punto de corte óptimo, sensibilidad, especificidad e índice de Youden máximo.
+    """
+    y_prob = self.resultados.predict(self.X_test)
+    fpr, tpr, p_values = roc_curve(self.y_test, y_prob)
+    auc = roc_auc_score(self.y_test, y_prob)
+
+    # Calcular índice de Youden
+    indice_youden = tpr - fpr
+    indice_optimo = np.argmax(indice_youden)
+    p_optimo = p_values[indice_optimo]
+    sensibilidad_optima = tpr[indice_optimo]
+    especificidad_optima = 1 - fpr[indice_optimo]
+    youden_max = indice_youden[indice_optimo]
+
+    # Graficar curva ROC
+    plt.figure()
+    plt.plot(fpr, tpr, label=f'AUC = {auc:.3f}')
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.scatter(fpr[indice_optimo], tpr[indice_optimo], color='red', label='Punto óptimo', zorder=10)
+    plt.xlabel("Falso Positivo (1 - Especificidad)")
+    plt.ylabel("Verdadero Positivo (Sensibilidad)")
+    plt.title("Curva ROC")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # Evaluación del AUC
+    if auc >= 0.9:
+        evaluacion = "Excelente (0.9 a 1)"
+    elif auc >= 0.8:
+        evaluacion = "Muy bueno (0.8 a 0.9)"
+    elif auc >= 0.7:
+        evaluacion = "Bueno (0.7 a 0.8)"
+    elif auc >= 0.6:
+        evaluacion = "Regular (0.6 a 0.7)"
+    else:
+        evaluacion = "Pobre (0.5 a 0.6)"
+
+    return {
+        "AUC": auc,
+        "Evaluación": evaluacion,
+        "p óptimo": p_optimo,
+        "Sensibilidad en óptimo": sensibilidad_optima,
+        "Especificidad en óptimo": especificidad_optima,
+        "Índice de Youden": youden_max
+    }
+
+
+def evaluar_anova(modelo_m, modelo_M):
+  '''
+  Funcion externa para evaluar anova.
+  Retorna: tabla con valores. Utilizar print() en su llamado.
+  Ejemplo: print(evaluar_anova(modelo_m, modelo_M))
+  Args:
+    modelo_m: modelo nulo | X_nulo = sm.add_constant([1] * len(datos))
+    modelo_M: modelo con todas/algunas variables. Recordar Dummies | x = pd.get_dummies(datos['...'], drop_first=True).astype(int) | X = sm.add_constant(x)
+
+  '''
+  anova_resultado = anova_lm(modelo_m.resultados, modelo_M.resultados)
+  return anova_resultado
+
+def importar_librerias():
+  import numpy as np
+  import pandas as pd
+  import matplotlib.pyplot as plt
+  import seaborn as sns
+  import statsmodels.api as sm
+  from statsmodels.stats.anova import anova_lm
+  from scipy import stats
+  from sklearn.metrics import confusion_matrix, roc_curve, roc_auc_score
+
+def separar_datos(datos, porcentaje):
+  '''
+  Funcion para separar datos en train y test.
+  Retorna: datos_train, datos_test. Dos dataframes con los datos separados.
+  Args:
+    datos: dataframe con los datos que se van a separar
+    porcentaje: porcentaje de separacion
+  '''
+  ## Completar
+  import random
+  n = datos.shape[0]
+  n_train=int(n*porcentaje)
+  n_test=n-n_train
+  # random.seed(10)
+  cuales = random.sample(range(n), n_train) # Elegimos numeros aleatorios
+
+  datos_test = datos.drop(cuales)
+  datos_train = datos.iloc[cuales]
+  return datos_train, datos_test
